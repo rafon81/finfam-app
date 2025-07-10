@@ -5,7 +5,8 @@ import altair as alt
 import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
-import copy # Importamos la librería para hacer copias
+# Se elimina la importación de 'copy' ya que no se usará más
+# import copy
 
 # Importar nuestro nuevo módulo de base de datos
 import database as db
@@ -20,13 +21,18 @@ try:
         config = yaml.load(file, Loader=SafeLoader)
 # Si no lo encuentra (en Streamlit Cloud), la carga desde los Secrets
 except FileNotFoundError:
-    # Usamos deepcopy para crear una copia mutable del diccionario de secretos
-    # Esto evita el error "TypeError: Secrets does not support item assignment."
-    config = copy.deepcopy({
-        'credentials': st.secrets['credentials'],
-        'cookie': st.secrets['cookie'],
-        'preauthorized': st.secrets['preauthorized']
-    })
+    # Construimos un diccionario Python normal a partir de st.secrets
+    # para evitar errores de RecursionError con deepcopy y TypeError.
+    config = {
+        'credentials': {
+            'usernames': {
+                username: dict(details)
+                for username, details in st.secrets.credentials.usernames.items()
+            }
+        },
+        'cookie': dict(st.secrets.cookie),
+        'preauthorized': dict(st.secrets.preauthorized)
+    }
 
 authenticator = stauth.Authenticate(
     config['credentials'],
