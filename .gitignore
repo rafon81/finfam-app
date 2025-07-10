@@ -1,0 +1,14 @@
+# Ignorar la base de datos local
+database.db
+
+# Ignorar archivos de configuración con secretos
+config.yaml
+
+# Ignorar carpetas de entorno de Python
+__pycache__/
+.venv/
+venv/
+env/
+
+# Ignorar archivos del sistema operativo
+.DS_Store
