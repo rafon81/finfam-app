@@ -5,6 +5,7 @@ import altair as alt
 import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
+import copy # Importamos la librería para hacer copias
 
 # Importar nuestro nuevo módulo de base de datos
 import database as db
@@ -12,18 +13,20 @@ import database as db
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="FinFam - Control Financiero", layout="wide", initial_sidebar_state="expanded")
 
-# --- LÓGICA DE AUTENTICACIÓN (HÍBRIDA) ---
+# --- LÓGICA DE AUTENTICACIÓN (HÍBRIDA Y SEGURA) ---
 # Intenta cargar la config desde el archivo local (para desarrollo)
 try:
     with open('config.yaml') as file:
         config = yaml.load(file, Loader=SafeLoader)
 # Si no lo encuentra (en Streamlit Cloud), la carga desde los Secrets
 except FileNotFoundError:
-    config = {
+    # Usamos deepcopy para crear una copia mutable del diccionario de secretos
+    # Esto evita el error "TypeError: Secrets does not support item assignment."
+    config = copy.deepcopy({
         'credentials': st.secrets['credentials'],
         'cookie': st.secrets['cookie'],
         'preauthorized': st.secrets['preauthorized']
-    }
+    })
 
 authenticator = stauth.Authenticate(
     config['credentials'],
@@ -224,4 +227,3 @@ with tabs[3]:
         st.cache_data.clear()
     st.subheader("Historial Completo de Transacciones")
     st.dataframe(app_data['transactions'].sort_values("date", ascending=False), use_container_width=True)
-
