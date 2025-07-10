@@ -9,11 +9,21 @@ import streamlit_authenticator as stauth
 # Importar nuestro nuevo módulo de base de datos
 import database as db
 
-# --- CONFIGURACIÓN DE PÁGINA Y AUTENTICACIÓN ---
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="FinFam - Control Financiero", layout="wide", initial_sidebar_state="expanded")
 
-with open('config.yaml') as file:
-    config = yaml.load(file, Loader=SafeLoader)
+# --- LÓGICA DE AUTENTICACIÓN (HÍBRIDA) ---
+# Intenta cargar la config desde el archivo local (para desarrollo)
+try:
+    with open('config.yaml') as file:
+        config = yaml.load(file, Loader=SafeLoader)
+# Si no lo encuentra (en Streamlit Cloud), la carga desde los Secrets
+except FileNotFoundError:
+    config = {
+        'credentials': st.secrets['credentials'],
+        'cookie': st.secrets['cookie'],
+        'preauthorized': st.secrets['preauthorized']
+    }
 
 authenticator = stauth.Authenticate(
     config['credentials'],
@@ -22,11 +32,9 @@ authenticator = stauth.Authenticate(
     config['cookie']['expiry_days']
 )
 
-# --- PANTALLA DE LOGIN (CORREGIDO) ---
-# Se llama al widget de login, que actualiza el estado de la sesión internamente.
+# --- PANTALLA DE LOGIN ---
 authenticator.login()
 
-# La lógica ahora se basa en st.session_state, que es más robusto y evita el TypeError.
 if not st.session_state.get("authentication_status"):
     if st.session_state.get("authentication_status") is False:
         st.error("Usuario o contraseña incorrectos.")
@@ -35,15 +43,14 @@ if not st.session_state.get("authentication_status"):
     st.stop()
 
 # --- APLICACIÓN PRINCIPAL ---
-# El botón de salir y el saludo ahora están agrupados en la barra lateral.
 with st.sidebar:
-    st.title(f"Bienvenido, {st.session_state['name']} �")
+    st.title(f"Bienvenido, {st.session_state['name']} 👋")
     authenticator.logout("Salir", location='sidebar', key='unique_logout_key')
 
 st.title("💰 FinFam: Tu Centro de Control Financiero")
 
-# --- CARGA DE DATOS (AHORA DESDE LA BD) ---
-@st.cache_data(ttl=60) # Cachear por 60 segundos
+# --- CARGA DE DATOS ---
+@st.cache_data(ttl=60)
 def load_data():
     data = {
         'transactions': db.get_transactions_with_details(),
@@ -55,7 +62,7 @@ def load_data():
 
 app_data = load_data()
 
-# --- PESTAÑAS DE NAVEGACIÓN ---
+# --- PESTAÑAS ---
 tabs = st.tabs([
     "📊 **Dashboard de Control**",
     "💸 **Registrar Transacción**",
@@ -63,15 +70,15 @@ tabs = st.tabs([
     "⚙️ **Configuración**"
 ])
 
+# (El resto del código de las pestañas no necesita cambios)
+
 # --- PESTAÑA 1: DASHBOARD ---
 with tabs[0]:
     st.header("Análisis Mensual")
-
-    # Filtros
+    # ... (código sin cambios)
     col_filt1, col_filt2, col_filt3 = st.columns(3)
     today = datetime.today()
     with col_filt1:
-        # Usamos los años presentes en los datos, con un fallback al año actual
         years_with_data = app_data['transactions']['date'].dt.year.unique()
         available_years = sorted(list(set(years_with_data) | {today.year}) , reverse=True)
         selected_year = st.selectbox("Año", available_years)
@@ -79,25 +86,20 @@ with tabs[0]:
         meses_es = {1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"}
         selected_month_num = st.selectbox("Mes", meses_es.keys(), index=today.month - 1, format_func=lambda x: meses_es[x])
     with col_filt3:
-        # Usamos los nombres de los usuarios desde el config para el filtro
         user_names = [d['name'] for d in config['credentials']['usernames'].values()]
         selected_person = st.selectbox("Persona", ["Ambos"] + user_names)
 
-    # Filtrado de datos
     transactions_df = app_data['transactions']
-    
     trans_mes = transactions_df[
         (transactions_df['date'].dt.year == selected_year) &
         (transactions_df['date'].dt.month == selected_month_num)
     ]
     if selected_person != "Ambos":
-        # Corregido: filtrar por el 'name' que es lo que se muestra en el selectbox
         trans_mes = trans_mes[trans_mes['user'] == selected_person]
 
     ingresos_mes = trans_mes[trans_mes['type'] == 'Ingreso']
     gastos_mes = trans_mes[trans_mes['type'] == 'Gasto']
 
-    # KPIs
     total_ingresos = ingresos_mes['amount'].sum()
     total_gastos = gastos_mes['amount'].sum()
     balance = total_ingresos - total_gastos
@@ -110,7 +112,6 @@ with tabs[0]:
     kpi3.metric("⚖️ Balance", f"${balance:,.2f}".replace(",", "."), delta=f"{tasa_ahorro:.1%}")
     st.markdown("---")
 
-    # Visualizaciones
     col_viz1, col_viz2 = st.columns([1, 2])
     with col_viz1:
         st.subheader("Gastos por Categoría")
@@ -124,7 +125,6 @@ with tabs[0]:
             st.altair_chart(chart, use_container_width=True)
         else:
             st.info("No hay gastos para mostrar.")
-
     with col_viz2:
         st.subheader("Progreso vs. Presupuesto")
         budgets_df = app_data['budgets']
@@ -132,7 +132,6 @@ with tabs[0]:
             gastos_agg = gastos_mes.groupby('category')['amount'].sum().reset_index()
             data_merged = pd.merge(gastos_agg, budgets_df, on='category', how='left').fillna(0)
             data_merged['percentage'] = (data_merged['amount_x'] / data_merged['amount_y']).clip(0, 1) * 100 if data_merged['amount_y'].sum() > 0 else 0
-            
             for _, row in data_merged.iterrows():
                 if row['amount_y'] > 0:
                     st.write(f"**{row['category']}**")
@@ -144,8 +143,8 @@ with tabs[0]:
 # --- PESTAÑA 2: REGISTRAR TRANSACCIÓN ---
 with tabs[1]:
     st.header("Registrar Ingreso o Gasto")
+    # ... (código sin cambios)
     trans_type = st.radio("Tipo de Transacción", ["Gasto", "Ingreso"], horizontal=True)
-
     with st.form("form_transaction", clear_on_submit=True):
         if trans_type == "Gasto":
             col1, col2 = st.columns(2)
@@ -171,7 +170,6 @@ with tabs[1]:
         submitted = st.form_submit_button("✅ Agregar Transacción")
         if submitted:
             try:
-                # Usamos el 'username' desde el estado de la sesión para la lógica interna
                 db.add_transaction(
                     user_username=st.session_state["username"],
                     category_name=categoria,
@@ -184,27 +182,25 @@ with tabs[1]:
                     total_amount=monto_total
                 )
                 st.success("Transacción registrada exitosamente.")
-                st.cache_data.clear() # Limpiar caché para recargar datos
+                st.cache_data.clear()
             except Exception as e:
                 st.error(f"Error al registrar la transacción: {e}")
 
 # --- PESTAÑA 3: GESTIONAR PRESUPUESTOS ---
 with tabs[2]:
     st.header("🎯 Definir Presupuestos Mensuales")
-    st.info("Establece un límite de gasto mensual para cada categoría.")
-    
+    # ... (código sin cambios)
     edited_budgets = st.data_editor(
         app_data['budgets'],
         num_rows="dynamic",
         use_container_width=True,
         column_config={
-            "id": None, # Ocultar columna ID
+            "id": None,
             "category": st.column_config.SelectboxColumn("Categoría de Gasto", options=app_data['categories'][app_data['categories']['type'] == 'Gasto']['name'].unique(), required=True),
             "amount": st.column_config.NumberColumn("Monto Presupuestado ($)", min_value=0, format="$ %.2f", required=True)
         },
         key="budget_editor"
     )
-    
     if st.button("💾 Guardar Presupuestos"):
         db.sync_budgets_from_dataframe(edited_budgets)
         st.success("Presupuestos guardados.")
@@ -213,20 +209,19 @@ with tabs[2]:
 # --- PESTAÑA 4: CONFIGURACIÓN ---
 with tabs[3]:
     st.header("⚙️ Configuración General")
-
+    # ... (código sin cambios)
     st.subheader("Administrar Categorías")
     edited_cats = st.data_editor(app_data['categories'], num_rows="dynamic", use_container_width=True, key="cats_editor")
     if st.button("Guardar Categorías"):
         db.sync_from_dataframe(edited_cats, 'categories')
         st.success("Categorías actualizadas.")
         st.cache_data.clear()
-
     st.subheader("Administrar Métodos de Pago")
     edited_methods = st.data_editor(app_data['payment_methods'], num_rows="dynamic", use_container_width=True, key="methods_editor")
     if st.button("Guardar Métodos de Pago"):
         db.sync_from_dataframe(edited_methods, 'payment_methods')
         st.success("Métodos de pago actualizados.")
         st.cache_data.clear()
-        
     st.subheader("Historial Completo de Transacciones")
     st.dataframe(app_data['transactions'].sort_values("date", ascending=False), use_container_width=True)
+
