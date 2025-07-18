@@ -12,3 +12,4 @@ env/
 
 # Ignorar archivos del sistema operativo
 .DS_Store
+.env
